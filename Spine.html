@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three.js Model Rotation Example</title>
+</head>
+
+<body>
+    <script type="module">
+        import * as dat from 'dat.gui';
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+
+        const monkeyUrl = new URL('./assets/reality_scan_3d_male_character (1).glb', import.meta.url);
+        const deviceUrl = new URL('./assets/better.glb', import.meta.url);
+        const velcroUrl = new URL('./assets/ban.glb', import.meta.url);
+
+        // Renderer setup
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        renderer.setClearColor(0xFFFFFF);
+
+        // Scene setup
+        const scene = new THREE.Scene();
+
+        // Camera setup
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.001, 10);
+        camera.position.set(0, 2, 4);
+
+        // OrbitControls setup
+        const orbit = new OrbitControls(camera, renderer.domElement);
+        orbit.update();
+
+        // Lights setup
+        const light = new THREE.DirectionalLight(0xFFFFFF, 1);
+        light.position.set(0, -1, -1);
+        scene.add(light);
+
+        const ambientLight = new THREE.AmbientLight(0xFFFFFF, 1);
+        scene.add(ambientLight);
+
+        // Load GLTF models
+        const assetLoader = new GLTFLoader();
+        let mixer, model, hand, forearm, device, velcro, left, right;
+        let isRotating = false;
+        let startTime;
+        let startAngle = THREE.MathUtils.degToRad(0); 
+        let endAngle = THREE.MathUtils.degToRad(23); // Ending angle in radians
+        let duration = 5; // Duration in seconds
+
+        assetLoader.load(monkeyUrl.href, (gltf) => {
+            model = gltf.scene;
+            scene.add(model);
+
+            mixer = new THREE.AnimationMixer(model);
+
+            const bbox = new THREE.Box3().setFromObject(model);
+            const center = bbox.getCenter(new THREE.Vector3());
+
+            model.position.set(-center.x, -center.y, -center.z);
+
+            // Cache the hand and forearm objects
+            hand = model.getObjectByName('CC_Base_Spine01_034');
+            left = model.getObjectByName('CC_Base_L_Upperarm_050');
+            right = model.getObjectByName('CC_Base_R_Upperarm_078');
+            if (!hand) {
+                console.error('Hand bone not found');
+                return;
+            }
+            if (!left) {
+                console.error('left bone not found');
+                return;
+            }
+
+            // Load the velcro GLB model
+            assetLoader.load(velcroUrl.href, (gltf) => {
+                velcro = gltf.scene;
+                velcro.scale.set(60, 30, 60);
+
+                if (hand) {
+                    hand.add(velcro);
+                    velcro.position.set(0, 4, -20);
+                    console.log('Velcro attached to hand');
+                } else {
+                    console.error('Hand bone not found for velcro attachment');
+                }
+
+                // Load the device GLB model
+                assetLoader.load(deviceUrl.href, (gltf) => {
+                    device = gltf.scene;
+                    device.scale.set(0.2, 0.2, 0.4);
+
+                    if (velcro) {
+                        velcro.add(device);
+                        device.position.set(0, 0.2, 0); // Adjust position relative to velcro
+                        device.rotation.x = -Math.PI / 2;
+                        device.rotation.z = 50.2;
+                        device.rotation.y = 84.8;
+                        console.log('Device attached to velcro and rotated');
+                    } else {
+                        console.error('Velcro not found for device attachment');
+                    }
+
+                }, undefined, (error) => {
+                    console.error('An error happened with the device:', error);
+                });
+
+            }, undefined, (error) => {
+                console.error('An error happened with the velcro:', error);
+            });
+
+        }, undefined, (error) => {
+            console.error('An error happened with the model:', error);
+        });
+
+        // dat.GUI setup
+        const gui = new dat.GUI();
+        const controls = {
+            start: () => startRotation(),
+        };
+        gui.add(controls, 'start').name('Start');
+
+        function startRotation() {
+            if (hand && left && right && !isRotating) {
+                isRotating = true;
+                startTime = performance.now();
+                // Set the forearm to 30 degrees before starting the hand rotation
+                left.rotation.x = THREE.MathUtils.degToRad(0);
+                left.rotation.z = THREE.MathUtils.degToRad(-85);
+
+                right.rotation.x = THREE.MathUtils.degToRad(0);
+                right.rotation.z = THREE.MathUtils.degToRad(75);
+            }
+        }
+
+        function animate(time) {
+            if (mixer) {
+                mixer.update(time / 1000);
+            }
+
+            if (isRotating) {
+                const elapsedTime = (time - startTime) / 1000; 
+
+                if (elapsedTime < duration) {
+                    const angle = startAngle + (endAngle - startAngle) * (elapsedTime / duration);
+                    hand.rotation.z = angle;
+                } else {
+                    hand.rotation.z = endAngle;
+                    isRotating = false; 
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        renderer.setAnimationLoop(animate);
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+
+</html>

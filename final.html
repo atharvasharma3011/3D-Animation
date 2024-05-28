@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three.js Model Rotation Example</title>
+    <style>
+        body { margin: 0; }
+        canvas { display: block; }
+    </style>
+</head>
+
+<body>
+    <script type="module">
+        import * as dat from 'dat.gui';
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+
+        const monkeyUrl = new URL('./assets/reality_scan_3d_male_character (1).glb', import.meta.url);
+        const deviceUrl = new URL('./assets/better.glb', import.meta.url);
+        const velcroUrl = new URL('./assets/ban.glb', import.meta.url);
+        const chairUrl = new URL('./assets/chair.glb', import.meta.url);
+
+        // Renderer setup
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        renderer.setClearColor(0xFFFFFF);
+
+        // Scene setup
+        const scene = new THREE.Scene();
+
+        // Camera setup
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.001, 10);
+        camera.position.set(0, 2, 4);
+
+        // OrbitControls setup
+        const orbit = new OrbitControls(camera, renderer.domElement);
+        orbit.update();
+
+        // Lights setup
+        const light = new THREE.DirectionalLight(0xFFFFFF, 1);
+        light.position.set(0, 1, 1);
+        scene.add(light);
+
+        const ambientLight = new THREE.AmbientLight(0xFFFFFF, 1);
+        scene.add(ambientLight);
+
+        // Load GLTF models
+        const assetLoader = new GLTFLoader();
+        let mixer, model, Lhand, Rhand, forearm, device, velcro, Lthigh, Rthigh, Lcalf, Rcalf, Spine, chair, baseHip;
+        let isRotating = false;
+        let startTime;
+        let startAngle = THREE.MathUtils.degToRad(0); // Default starting angle
+        let endAngle = THREE.MathUtils.degToRad(-25); // Default ending angle
+        let duration = 5; // Duration in seconds
+        let adjustedAngle = 0; // Variable to store the adjusted angle
+
+        assetLoader.load(monkeyUrl.href, (gltf) => {
+            model = gltf.scene;
+            scene.add(model);
+
+            mixer = new THREE.AnimationMixer(model);
+
+            const bbox = new THREE.Box3().setFromObject(model);
+            const center = bbox.getCenter(new THREE.Vector3());
+            model.position.set(-center.x, -center.y, -center.z);
+
+            // Cache the necessary objects
+            Lhand = model.getObjectByName('CC_Base_L_Upperarm_050');
+            Rhand = model.getObjectByName('CC_Base_R_Upperarm_078');
+            forearm = model.getObjectByName('CC_Base_L_Forearm_051');
+            Lthigh = model.getObjectByName('CC_Base_L_Thigh_04');
+            Rthigh = model.getObjectByName('CC_Base_R_Thigh_018');
+            Lcalf = model.getObjectByName('CC_Base_L_Calf_05');
+            Rcalf = model.getObjectByName('CC_Base_R_Calf_019');
+            Spine = model.getObjectByName('CC_Base_Spine01_034');
+            baseHip = model.getObjectByName('CC_Base_Hip_02');
+            waist = model.getObjectByName('CC_Base_Waist_033');
+            Spine2 = model.getObjectByName('CC_Base_Spine02_035');
+            Lfoot = model.getObjectByName('CC_Base_L_Foot_06');
+            Rfoot = model.getObjectByName('CC_Base_R_Foot_021');
+
+            if (!Lhand || !Rhand || !forearm || !Lthigh || !Rthigh || !Lcalf || !Rcalf || !Spine || !baseHip) {
+                console.error('Some bones are not found');
+                return;
+            }
+
+            // Load the velcro GLB model
+            assetLoader.load(velcroUrl.href, (gltf) => {
+                velcro = gltf.scene;
+                velcro.scale.set(25, 20, 15);
+
+                Lfoot.add(velcro);
+                velcro.position.set(1, 12, -4);
+                console.log('Velcro attached to Spine');
+
+                // Load the device GLB model
+                assetLoader.load(deviceUrl.href, (gltf) => {
+                    device = gltf.scene;
+                    device.scale.set(0.4, 0.4, 0.44);
+
+                    velcro.add(device);
+                    device.position.set(0, -0.15, 0.55); 
+                    device.rotation.x = Math.PI / 2;
+                    device.rotation.z = 50.2;
+                    device.rotation.y = 84.8;
+                    console.log('Device attached to velcro and rotated');
+
+                }, undefined, (error) => {
+                    console.error('An error happened with the device: ', error);
+                });
+
+            }, undefined, (error) => {
+                console.error('An error happened with the velcro: ', error);
+            });
+
+            // Load the chair GLB model
+            assetLoader.load(chairUrl.href, (gltf) => {
+                chair = gltf.scene;
+                chair.scale.set(200, 150, 100); // Adjust the scale of the chair as needed
+
+                baseHip.add(chair);
+                chair.position.set(0, -90, 0); // Adjust the position of the chair relative to the base_hip
+                chair.rotation.y = 3.14159;
+                console.log('Chair attached to base_hip');
+
+            }, undefined, (error) => {
+                console.error('An error happened with the chair:', error);
+            });
+
+        }, undefined, (error) => {
+            console.error('An error happened with the model:', error);
+        });
+
+        // dat.GUI setup
+        const gui = new dat.GUI();
+        const controls = {
+            start: () => startRotation(),
+            adjust: () => adjustPosition(),
+        };
+        gui.add(controls, 'start').name('Start');
+        gui.add(controls, 'adjust').name('Adjust');
+
+        function adjustPosition() {
+            if (Lhand && Rhand && forearm && Lcalf && Lthigh && Rcalf && Rthigh) {
+                // Adjust the hand and forearm position here
+                adjustedAngle = THREE.MathUtils.degToRad(-90);
+                Lcalf.rotation.x = -1.5708;
+                Rcalf.rotation.x = -1.5708;
+
+                Lthigh.rotation.x = -1.5708;
+                Rthigh.rotation.x = -1.5708;
+
+                Rfoot.rotation.x = 1.5708;
+                // Lfoot.rotation.x = 1.5708;
+
+                // Lthigh.rotation.z = 10;
+                // Rthigh.rotation.z = -10;
+
+                // Lhand.rotation.x = 33.3;
+                // Rhand.rotation.x = 33.3;
+
+                // Lhand.rotation.z = -6.5;
+                // Rhand.rotation.z = 6.5;
+            }
+        }
+
+        function startRotation() {
+            if (Lhand && forearm && !isRotating && Rthigh && Lthigh && Rcalf && Lcalf && waist && Spine2) {
+                isRotating = true;
+                startTime = performance.now();
+                // Spine.rotation.x = startAngle;
+                // Spine2.rotation.x = startAngle;
+                // waist.rotation.x = startAngle;
+                Lfoot.rotation.z = startAngle;
+            }
+        }
+
+        function animate(time) {
+            if (mixer) {
+                mixer.update(time / 1000);
+            }
+
+            if (isRotating) {
+                const elapsedTime = (time - startTime) / 1000;
+
+                if (elapsedTime < duration) {
+                    const angle = startAngle + (endAngle - startAngle) * (elapsedTime / duration);
+                    // Spine.rotation.x = angle;
+                    // Spine2.rotation.x = angle;
+                    // waist.rotation.x = angle;
+                    Lfoot.rotation.z = angle;
+                } else {
+                    // Spine.rotation.x = endAngle;
+                    // Spine2.rotation.x = endAngle;
+                    // waist.rotation.x = endAngle;
+                    Lfoot.rotation.z = endAngle;
+                    isRotating = false;
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        renderer.setAnimationLoop(animate);
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+
+</html>
